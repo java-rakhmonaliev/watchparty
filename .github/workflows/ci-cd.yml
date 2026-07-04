@@ -1,0 +1,130 @@
+name: CI / Deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  AWS_REGION: eu-central-1
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - run: pip install -r requirements.txt websockets
+
+      - name: Django checks
+        run: python manage.py check
+
+      # The real regression suites need a live server. Run them twice: once on
+      # the in-memory store, once Redis-backed — the exact matrix a deploy needs.
+      - name: Protocol + sync suites (in-memory store)
+        run: |
+          python manage.py runserver 127.0.0.1:8000 --noreload &
+          for i in $(seq 1 30); do curl -sf http://127.0.0.1:8000/ >/dev/null && break; sleep 1; done
+          python scripts/ws_smoke.py
+          node scripts/sync_sim.mjs
+
+      - name: Protocol + sync suites (Redis store)
+        env:
+          REDIS_URL: redis://127.0.0.1:6379/0
+        run: |
+          python manage.py runserver 127.0.0.1:8001 --noreload &
+          for i in $(seq 1 30); do curl -sf http://127.0.0.1:8001/ >/dev/null && break; sleep 1; done
+          WS_BASE=ws://127.0.0.1:8001 python scripts/ws_smoke.py
+          WP_BASE=http://127.0.0.1:8001 node scripts/sync_sim.mjs
+
+      - name: Rendered page JS parses
+        run: |
+          curl -s http://127.0.0.1:8000/room/ci-check/ | python3 -c "
+          import sys, re
+          src = re.search(r'<script>([\s\S]*?)</script>\s*</body>', sys.stdin.read()).group(1)
+          open('room-inline.js', 'w').write(src)"
+          node --check room-inline.js
+          curl -s http://127.0.0.1:8000/ | python3 -c "
+          import sys, re
+          src = re.search(r'<script>([\s\S]*?)</script>\s*</body>', sys.stdin.read()).group(1)
+          open('index-inline.js', 'w').write(src)"
+          node --check index-inline.js
+
+  deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: test
+    runs-on: ubuntu-latest
+    concurrency:
+      group: deploy
+      cancel-in-progress: false
+    permissions:
+      id-token: write # OIDC — no AWS keys stored in GitHub
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build and push image (arm64 — the instance is Graviton)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/arm64
+          push: true
+          tags: |
+            ${{ steps.ecr.outputs.registry }}/watchparty:latest
+            ${{ steps.ecr.outputs.registry }}/watchparty:sha-${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Deploy on the instance (SSM run-command)
+        run: |
+          set -euo pipefail
+          INSTANCE_ID=$(aws ec2 describe-instances \
+            --filters "Name=tag:Name,Values=watchparty" "Name=instance-state-name,Values=running" \
+            --query "Reservations[0].Instances[0].InstanceId" --output text)
+          echo "deploying to $INSTANCE_ID"
+          CMD_ID=$(aws ssm send-command \
+            --instance-ids "$INSTANCE_ID" \
+            --document-name AWS-RunShellScript \
+            --comment "watchparty deploy ${GITHUB_SHA::7}" \
+            --parameters 'commands=["bash /opt/watchparty/deploy.sh"]' \
+            --query Command.CommandId --output text)
+          STATUS=Pending
+          for i in $(seq 1 60); do
+            STATUS=$(aws ssm get-command-invocation --command-id "$CMD_ID" \
+              --instance-id "$INSTANCE_ID" --query Status --output text 2>/dev/null || echo Pending)
+            case "$STATUS" in
+              Success) break ;;
+              Failed|Cancelled|TimedOut)
+                echo "deploy $STATUS"
+                aws ssm get-command-invocation --command-id "$CMD_ID" \
+                  --instance-id "$INSTANCE_ID" --query StandardErrorContent --output text
+                exit 1 ;;
+            esac
+            sleep 5
+          done
+          [ "$STATUS" = "Success" ] || { echo "deploy timed out"; exit 1; }
+          echo "deployed ${GITHUB_SHA::7}"

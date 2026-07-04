@@ -1,0 +1,123 @@
+#!/bin/bash
+# First-boot setup: docker + compose, then write the runtime stack under
+# /opt/watchparty. Config lives HERE (versioned via terraform), secrets come
+# from SSM Parameter Store at deploy time. Re-running deploy.sh is the whole
+# deployment story (GitHub Actions triggers it over SSM).
+set -euxo pipefail
+
+dnf install -y docker
+systemctl enable --now docker
+
+# compose v2 plugin (not packaged in AL2023)
+mkdir -p /usr/local/lib/docker/cli-plugins
+curl -fsSL https://github.com/docker/compose/releases/download/v2.29.7/docker-compose-linux-aarch64 \
+  -o /usr/local/lib/docker/cli-plugins/docker-compose
+chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+
+mkdir -p /opt/watchparty
+cd /opt/watchparty
+
+cat > Caddyfile <<'CADDY'
+${domain} {
+	reverse_proxy web:8000
+}
+CADDY
+
+cat > docker-compose.yml <<'COMPOSE'
+services:
+  web:
+    image: ${ecr_image}
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      - redis
+    logging: &logs
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    logging: *logs
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - web
+    logging: *logs
+
+  coturn:
+    image: coturn/coturn:4
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./turnserver.conf:/etc/coturn/turnserver.conf:ro
+    logging: *logs
+
+volumes:
+  caddy_data:
+  caddy_config:
+COMPOSE
+
+cat > deploy.sh <<'DEPLOY'
+#!/bin/bash
+# Pull secrets, render runtime config, pull the newest image, restart.
+# Idempotent — run as often as you like (Actions runs it on every deploy).
+set -euo pipefail
+cd /opt/watchparty
+
+SECRET_KEY=$(aws ssm get-parameter --region ${region} --name /watchparty/secret_key \
+  --with-decryption --query Parameter.Value --output text)
+TURN_CREDENTIAL=$(aws ssm get-parameter --region ${region} --name /watchparty/turn_credential \
+  --with-decryption --query Parameter.Value --output text)
+
+umask 077
+cat > .env <<ENV
+DEBUG=0
+SECRET_KEY=$SECRET_KEY
+ALLOWED_HOSTS=${domain},localhost,127.0.0.1,web
+REDIS_URL=redis://redis:6379/0
+TURN_URL=turn:${domain}:3478
+TURN_USERNAME=watchparty
+TURN_CREDENTIAL=$TURN_CREDENTIAL
+ENV
+
+cat > turnserver.conf <<TURN
+listening-port=3478
+external-ip=${eip}
+min-port=${turn_min_port}
+max-port=${turn_max_port}
+fingerprint
+lt-cred-mech
+user=watchparty:$TURN_CREDENTIAL
+realm=watchparty
+no-tls
+no-dtls
+no-cli
+denied-peer-ip=10.0.0.0-10.255.255.255
+denied-peer-ip=172.16.0.0-172.31.255.255
+denied-peer-ip=192.168.0.0-192.168.255.255
+denied-peer-ip=127.0.0.0-127.255.255.255
+denied-peer-ip=169.254.0.0-169.254.255.255
+TURN
+
+aws ecr get-login-password --region ${region} \
+  | docker login --username AWS --password-stdin ${registry}
+
+# On the very first boot the image doesn't exist yet (Actions hasn't built
+# one) — bring up what we can and let the first CI deploy finish the job.
+docker compose pull || true
+docker compose up -d --remove-orphans || true
+docker image prune -af --filter "until=72h" >/dev/null || true
+DEPLOY
+chmod +x deploy.sh
+
+./deploy.sh || true

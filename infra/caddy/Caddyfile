@@ -1,0 +1,6 @@
+# Caddy fronts the ASGI server: automatic HTTPS for $DOMAIN (Let's Encrypt),
+# and WebSocket upgrades are proxied out of the box — wss:// just works.
+# With DOMAIN unset it serves https://localhost with an internal CA cert.
+{$DOMAIN:localhost} {
+	reverse_proxy web:8000
+}

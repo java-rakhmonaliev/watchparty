@@ -1,0 +1,1547 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>{{ room_id }} · Watch Party</title>
+<style>
+  :root {
+    --bg: #16121c; --fg: #f4eff7; --muted: #9a91a8;
+    --card: #221c2e; --card2: #2a2338; --border: #322a42;
+    --card-hi: rgba(255,255,255,.07);
+    --accent: #8b7cf7; --accent-fg: #16121c; --accent-soft: rgba(139,124,247,.18);
+    --sun-a: #ff5c39; --sun-b: #ffb02e;
+    --warn: #ffb02e; --warn-bg: #2c2210; --ok: #4ade80; --bad: #f87171;
+    --shadow: 0 14px 36px rgba(0,0,0,.45);
+    --spring: cubic-bezier(.34,1.56,.64,1);
+  }
+  :root[data-theme="light"] {
+    --bg: #faf6f0; --fg: #241d2e; --muted: #7b7186;
+    --card: #ffffff; --card2: #f3ece2; --border: #e8e0d4;
+    --card-hi: rgba(255,255,255,.9);
+    --accent: #6d5ce6; --accent-fg: #ffffff; --accent-soft: rgba(109,92,230,.12);
+    --warn: #b45309; --warn-bg: #fef3c7; --ok: #16a34a; --bad: #dc2626;
+    --shadow: 0 14px 36px rgba(60,40,20,.12);
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; color: var(--fg);
+    background:
+      radial-gradient(700px 380px at 85% -10%, color-mix(in srgb, var(--sun-a) 10%, transparent), transparent),
+      radial-gradient(560px 360px at 0% 110%, color-mix(in srgb, var(--accent) 10%, transparent), transparent),
+      var(--bg);
+    font: 14px/1.5 ui-rounded, "SF Pro Rounded", -apple-system, system-ui, "Segoe UI", sans-serif;
+  }
+
+  /* ---------- header ---------- */
+  header {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 16px; border-bottom: 1px solid var(--border);
+    background: color-mix(in srgb, var(--bg) 82%, transparent);
+    position: sticky; top: 0; backdrop-filter: blur(12px); z-index: 20;
+  }
+  header h1 { font-size: 16px; font-weight: 800; margin: 0; letter-spacing: -.02em; }
+  .pill {
+    font-size: 11px; font-weight: 700; color: var(--muted); padding: 4px 10px;
+    border: 1px solid var(--border); border-radius: 999px; white-space: nowrap;
+    background: var(--card); box-shadow: inset 0 1px 0 var(--card-hi);
+  }
+  .pill.host { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+  .spacer { flex: 1; }
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+    padding: 8px 13px; border: 1px solid var(--border); border-radius: 12px;
+    background: var(--card); color: var(--fg); font: inherit; font-size: 13px;
+    font-weight: 650; cursor: pointer;
+    box-shadow: inset 0 1px 0 var(--card-hi);
+    transition: transform .12s var(--spring), border-color .12s, background .12s;
+  }
+  .btn svg { width: 16px; height: 16px; flex: none; }
+  .btn.sm { padding: 7px 9px; border-radius: 10px; }
+  .btn.sm svg { width: 15px; height: 15px; }
+  .btn.active { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+  .btn:hover { border-color: var(--accent); transform: translateY(-1px); }
+  .btn:active { transform: translateY(1px) scale(.97); }
+  .btn.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+  .btn.danger:hover { border-color: var(--bad); color: var(--bad); }
+  .btn:disabled { opacity: .45; cursor: default; transform: none; }
+
+  /* ---------- layout ---------- */
+  main {
+    display: grid; grid-template-columns: minmax(0,1fr) 300px; gap: 16px;
+    padding: 16px; max-width: 1440px; margin: 0 auto;
+  }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+
+  /* ---------- stage ---------- */
+  .stage {
+    position: relative; background: #000; border-radius: 22px; overflow: hidden;
+    aspect-ratio: 16/9; box-shadow: var(--shadow);
+    border: 1px solid var(--border);
+  }
+  .stage:fullscreen { border-radius: 0; aspect-ratio: auto; }
+  video.main { width: 100%; height: 100%; display: block; background: #000; }
+  .stage.hideui { cursor: none; }
+
+  .overlay {
+    position: absolute; inset: 0; display: grid; place-items: center;
+    background: rgba(5,5,10,.78); backdrop-filter: blur(6px);
+    color: #fff; text-align: center; z-index: 3;
+  }
+  .overlay.hidden { display: none; }
+  .overlay .card {
+    display: flex; flex-direction: column; gap: 14px; align-items: center;
+    padding: 30px 34px; max-width: 380px;
+  }
+  .overlay h2 { margin: 0; font-size: 21px; font-weight: 800; letter-spacing: -.02em; }
+  .overlay p { margin: 0; color: #b9b9c5; font-size: 13.5px; }
+  .overlay label.file, .overlay button {
+    padding: 13px 24px; border: 0; border-radius: 15px; cursor: pointer;
+    font: inherit; font-size: 15px; font-weight: 750;
+    transition: transform .12s var(--spring);
+  }
+  .overlay label.file:hover, .overlay button:hover { transform: translateY(-1px) scale(1.01); }
+  .overlay label.file:active, .overlay button:active { transform: translateY(1px) scale(.98); }
+  .overlay label.file {
+    background: #fff; color: #1a1420;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.8), 0 8px 20px rgba(0,0,0,.35);
+  }
+  .overlay button {
+    background: linear-gradient(115deg, var(--sun-a), var(--sun-b)); color: #24130b;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.45),
+                0 8px 20px color-mix(in srgb, var(--sun-a) 40%, transparent);
+  }
+  .overlay input[type=file] { display: none; }
+  .overlay input[type=text] {
+    width: 100%; padding: 11px 14px; border-radius: 13px; text-align: center;
+    border: 1px solid rgba(255,255,255,.22); background: rgba(255,255,255,.09);
+    color: #fff; font: inherit; font-size: 14px; outline: none;
+  }
+  .overlay input[type=text]:focus { border-color: var(--sun-b); }
+
+  /* buffering spinner */
+  .spin {
+    position: absolute; top: 50%; left: 50%; margin: -22px 0 0 -22px;
+    width: 44px; height: 44px; border-radius: 50%; z-index: 2;
+    border: 3px solid rgba(255,255,255,.25); border-top-color: #fff;
+    animation: spin .8s linear infinite; pointer-events: none;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ---------- in-stage controls ---------- */
+  .ctrl {
+    position: absolute; left: 0; right: 0; bottom: 0; z-index: 2;
+    padding: 26px 14px 10px;
+    background: linear-gradient(transparent, rgba(0,0,0,.82));
+    display: none; flex-direction: column; gap: 6px;
+    opacity: 1; transition: opacity .25s;
+  }
+  .stage.ready .ctrl { display: flex; }
+  .stage.hideui .ctrl { opacity: 0; pointer-events: none; }
+  .ctrl .row { display: flex; align-items: center; gap: 10px; }
+  .ctrl button {
+    height: 36px; min-width: 40px; padding: 0 11px; border: 0; border-radius: 12px;
+    background: rgba(255,255,255,.14); color: #fff; cursor: pointer;
+    font: inherit; font-size: 13px; font-weight: 700;
+    font-variant-numeric: tabular-nums; backdrop-filter: blur(4px);
+    transition: transform .12s var(--spring), background .12s;
+  }
+  .ctrl button:hover { background: rgba(255,255,255,.26); transform: translateY(-1px); }
+  .ctrl button:active { transform: translateY(1px) scale(.95); }
+  .ctrl button svg { width: 17px; height: 17px; display: block; margin: auto; }
+  .ctrl #playBtn {
+    background: linear-gradient(115deg, var(--sun-a), var(--sun-b)); color: #24130b;
+    min-width: 48px;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.4);
+  }
+  .ctrl #playBtn svg { width: 19px; height: 19px; }
+  .ctrl .time { font-size: 12px; color: #d6d6e0; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .ctrl input[type=range] { accent-color: var(--accent); cursor: pointer; height: 4px; }
+  .ctrl #seekBar { width: 100%; }
+  .ctrl #volBar { width: 80px; }
+  .ctrl .sync { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: #d6d6e0; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }
+  .dot.ok { background: var(--ok); } .dot.mid { background: var(--warn); } .dot.bad { background: var(--bad); }
+
+  .hint { margin-top: 10px; font-size: 12.5px; color: var(--muted); text-align: center; }
+
+  /* ---------- sidebar ---------- */
+  .panel { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+  .box {
+    background: linear-gradient(var(--card-hi), transparent 45%), var(--card);
+    border: 1px solid var(--border);
+    border-radius: 20px; padding: 15px; box-shadow: var(--shadow);
+  }
+  .box h2 {
+    margin: 0 0 10px; font-size: 11px; text-transform: uppercase;
+    letter-spacing: .09em; color: var(--muted); font-weight: 800;
+  }
+  .peer { display: flex; align-items: center; gap: 10px; padding: 5px 0; }
+  .avatar {
+    width: 30px; height: 30px; border-radius: 11px; flex: none;
+    display: grid; place-items: center; color: #fff;
+    font-size: 13px; font-weight: 750; text-transform: uppercase;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.25), 0 2px 5px rgba(0,0,0,.25);
+  }
+  .peer .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .peer .tag {
+    font-size: 10.5px; font-weight: 700; color: var(--accent); margin-left: auto;
+    border: 1px solid var(--accent); border-radius: 999px; padding: 1px 8px;
+    background: var(--accent-soft);
+  }
+  .peer .mini {
+    margin-left: auto; padding: 4px 9px; border-radius: 9px; border: 1px solid var(--border);
+    background: var(--card2); color: var(--fg); font: inherit; font-size: 11.5px;
+    font-weight: 700; cursor: pointer; flex: none;
+    display: inline-flex; align-items: center; gap: 4px;
+    transition: transform .12s var(--spring), border-color .12s, color .12s;
+  }
+  .peer .mini svg { width: 13px; height: 13px; display: block; }
+  .peer .tag + .mini, .peer .mini + .mini { margin-left: 6px; }
+  .peer .mini:hover { transform: translateY(-1px); }
+  .peer .mini:active { transform: translateY(1px) scale(.94); }
+  .peer .mini.ok:hover { border-color: var(--ok); color: var(--ok); }
+  .peer .mini.danger:hover { border-color: var(--bad); color: var(--bad); }
+  .peer.knockrow {
+    background: var(--accent-soft); border-radius: 13px; padding: 7px 9px;
+    margin-top: 6px;
+  }
+  .mediabar { display: flex; gap: 8px; }
+  .mediabar .btn { font-size: 12.5px; padding: 8px 8px; }
+  .mediabar #camBtn { flex: 1; }
+
+  .facetools { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+  .facetools svg.dim { width: 15px; height: 15px; color: var(--muted); flex: none; }
+  .facetools input[type=range] { flex: 1; min-width: 0; accent-color: var(--accent); }
+
+  .tiles {
+    display: grid; gap: 8px; margin-top: 10px;
+    grid-template-columns: repeat(auto-fill, minmax(var(--tilew, 126px), 1fr));
+  }
+  .tiles:empty { display: none; }
+  /* faces floating over the movie (also visible in fullscreen) */
+  .tiles.on-stage {
+    position: absolute; top: 12px; right: 12px; z-index: 2; margin: 0;
+    display: flex; flex-direction: column; width: var(--tilew, 126px);
+    max-height: calc(100% - 90px); overflow-y: auto; scrollbar-width: none;
+  }
+  .tile {
+    position: relative; aspect-ratio: 4/3; background: #101016; border-radius: 15px;
+    overflow: hidden; border: 1px solid var(--border);
+    box-shadow: 0 6px 16px rgba(0,0,0,.3); flex: none;
+  }
+  .tile video { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .tile .ph {
+    display: none; position: absolute; inset: 0; place-items: center;
+    color: #fff; font-size: 26px; font-weight: 800;
+    background: linear-gradient(150deg, #2c2440, #191521);
+  }
+  .tile.novideo video { visibility: hidden; }
+  .tile.novideo .ph { display: grid; }
+  .tile span {
+    position: absolute; left: 8px; bottom: 6px; font-size: 11px; font-weight: 700;
+    color: #fff; text-shadow: 0 1px 3px #000; z-index: 1;
+  }
+  .stat { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); padding: 2px 0; }
+  .stat b { color: var(--fg); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .warn {
+    background: var(--warn-bg); color: var(--warn); border: 1px solid var(--warn);
+    border-radius: 14px; padding: 10px 12px; font-size: 12.5px;
+  }
+
+  /* ---------- toasts ---------- */
+  #toasts {
+    position: fixed; top: 60px; right: 16px; z-index: 50;
+    display: flex; flex-direction: column; gap: 8px; align-items: flex-end;
+  }
+  .toast {
+    background: var(--card2); color: var(--fg); border: 1px solid var(--border);
+    border-radius: 14px; padding: 10px 15px; font-size: 13px; font-weight: 600;
+    box-shadow: var(--shadow), inset 0 1px 0 var(--card-hi);
+    opacity: 0; transform: translateY(-8px) scale(.96);
+    transition: opacity .22s, transform .25s var(--spring);
+    max-width: 320px;
+  }
+  .toast.show { opacity: 1; transform: none; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<header>
+  <h1>{{ room_id }}</h1>
+  <span class="pill" id="rolePill">connecting…</span>
+  <div class="spacer"></div>
+  <button class="btn" id="copyBtn">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10.5 13.5a3.8 3.8 0 0 0 5.4 0l3-3a3.8 3.8 0 0 0-5.4-5.4l-1.7 1.7"/><path d="M13.5 10.5a3.8 3.8 0 0 0-5.4 0l-3 3a3.8 3.8 0 0 0 5.4 5.4l1.7-1.7"/></svg>
+    <span>Copy link</span></button>
+  <button class="btn hidden" id="lockBtn"></button>
+  <button class="btn" id="themeBtn" title="Theme">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="8.2"/><path d="M12 3.8v16.4A8.2 8.2 0 0 0 12 3.8z" fill="currentColor" stroke="none"/></svg></button>
+  <button class="btn" id="leaveBtn">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 6V5a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2v-1"/><path d="M9.5 12H21M17.5 8.5 21 12l-3.5 3.5"/></svg>
+    <span>Leave</span></button>
+  <button class="btn danger hidden" id="deleteBtn" title="Delete room for everyone">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 6.5h15M9.5 6.2V4.9a1.4 1.4 0 0 1 1.4-1.4h2.2a1.4 1.4 0 0 1 1.4 1.4v1.3M6.6 6.5l.8 12.1a1.6 1.6 0 0 0 1.6 1.5h6a1.6 1.6 0 0 0 1.6-1.5l.8-12.1M10 10.5v6M14 10.5v6"/></svg></button>
+</header>
+
+<main>
+  <section>
+    <div class="stage" id="stage">
+      <video class="main" id="video" playsinline></video>
+
+      <div class="overlay" id="overlay">
+        <div class="card">
+          <h2 id="overlayTitle">Load your copy of the movie</h2>
+          <p id="overlayText">Everyone opens the same file from their own disk —
+            nothing is uploaded anywhere.</p>
+          <input type="text" id="nameInput" maxlength="40" placeholder="Your name"
+                 autocomplete="off" />
+          <label class="file" id="fileLabel">Choose video file
+            <input type="file" id="fileInput" accept="video/*" />
+          </label>
+          <button id="startBtn" class="hidden">Enter watch party</button>
+        </div>
+      </div>
+
+      <div class="spin hidden" id="spinner"></div>
+
+      <div class="ctrl" id="controlBar">
+        <input id="seekBar" type="range" min="0" max="0" step="0.1" value="0" />
+        <div class="row">
+          <button id="playBtn" title="Play/Pause (Space, hold for 2×)"></button>
+          <button id="backBtn" title="Back 10s (←)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4.2a8 8 0 1 1-5.8 2.5"/><polyline points="6.4,2.4 6.2,6.7 10.5,6.9"/><text x="12" y="15.6" font-size="7.6" font-weight="700" fill="currentColor" stroke="none" text-anchor="middle">10</text></svg></button>
+          <button id="fwdBtn" title="Forward 10s (→)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4.2a8 8 0 1 0 5.8 2.5"/><polyline points="17.6,2.4 17.8,6.7 13.5,6.9"/><text x="12" y="15.6" font-size="7.6" font-weight="700" fill="currentColor" stroke="none" text-anchor="middle">10</text></svg></button>
+          <span class="time" id="timeLabel">0:00 / 0:00</span>
+          <div class="spacer"></div>
+          <button id="muteBtnV" title="Mute (M)"></button>
+          <input id="volBar" type="range" min="0" max="1" step="0.02" value="1" />
+          <span class="sync"><span class="dot" id="syncDot"></span><span id="ctrlDrift">—</span></span>
+          <button id="fsBtn" title="Fullscreen (F)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V5.5A1.5 1.5 0 0 1 5.5 4H9M20 9V5.5A1.5 1.5 0 0 0 18.5 4H15M4 15v3.5A1.5 1.5 0 0 0 5.5 20H9M20 15v3.5a1.5 1.5 0 0 1-1.5 1.5H15"/></svg></button>
+        </div>
+      </div>
+    </div>
+    <div class="hint">Anyone can play, pause, or skip — everyone stays in sync.
+    Faces can float over the movie or pop out to a second screen.</div>
+  </section>
+
+  <aside class="panel">
+    <div class="box">
+      <h2>In this room</h2>
+      <div id="peerList"></div>
+    </div>
+
+    <div class="box" id="fileWarn" style="display:none">
+      <div class="warn" id="fileWarnText"></div>
+    </div>
+
+    <div class="box" id="mediaWarn" style="display:none">
+      <div class="warn" id="mediaWarnText"></div>
+    </div>
+
+    <div class="box">
+      <h2>Faces</h2>
+      <div class="mediabar">
+        <button class="btn" id="camBtn" disabled>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="6.5" width="12" height="11" rx="2.5"/><path d="M15.5 10.5 20.5 8v8l-5-2.5"/></svg>
+          <span>Join cam &amp; mic</span></button>
+        <button class="btn hidden" id="muteBtn" title="Mute your mic"></button>
+        <button class="btn hidden" id="videoBtn" title="Turn your camera off"></button>
+      </div>
+      <div class="facetools hidden" id="faceTools">
+        <svg class="dim" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 17.5h5M4 12h9M4 6.5h16"/></svg>
+        <input id="tileSize" type="range" min="90" max="240" step="2" value="132" title="Face size" />
+        <button class="btn sm" id="overlayBtn" title="Show faces over the movie">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="3.5" y="5.5" width="17" height="13" rx="2.5"/><rect x="12.3" y="11.8" width="6" height="4.4" rx="1.2" fill="currentColor" stroke="none"/></svg></button>
+        <button class="btn sm" id="popoutBtn" title="Pop faces out into their own window (drag it to a second screen)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 5H6.5A2.5 2.5 0 0 0 4 7.5v10A2.5 2.5 0 0 0 6.5 20h10a2.5 2.5 0 0 0 2.5-2.5V14.5"/><path d="M14 4.5h5.5V10M19.1 4.9 12.5 11.5"/></svg></button>
+      </div>
+      <div id="tilesHome"><div class="tiles" id="tiles"></div></div>
+    </div>
+
+    <div class="box">
+      <h2>Connection</h2>
+      <div class="stat"><span>Clock offset</span><b id="statOffset">—</b></div>
+      <div class="stat"><span>RTT</span><b id="statRtt">—</b></div>
+      <div class="stat"><span>Drift</span><b id="statDrift">—</b></div>
+    </div>
+  </aside>
+</main>
+
+<div id="toasts"></div>
+
+{{ ice_servers|json_script:"ice-config" }}
+<script>
+// ---------- theme ----------
+function toggleTheme() {
+  const r = document.documentElement;
+  const next = r.getAttribute("data-theme") === "light" ? "dark" : "light";
+  r.setAttribute("data-theme", next);
+  localStorage.setItem("theme", next);
+}
+document.documentElement.setAttribute(
+  "data-theme", localStorage.getItem("theme") || "dark"  // movie night defaults dark
+);
+
+// ---------- config / state ----------
+const ROOM = "{{ room_id }}";
+// STUN always; a TURN entry is appended server-side when the TURN_URL /
+// TURN_USERNAME / TURN_CREDENTIAL env vars are set (see config/settings.py).
+const ICE = JSON.parse(document.getElementById("ice-config").textContent);
+
+const video = document.getElementById("video");
+const stage = document.getElementById("stage");
+
+// Inline SF-style icons for every stateful control (no emoji anywhere).
+const S_ = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">';
+const SVGI = {
+  play: S_ + '<path d="M8 5.6v12.8a1 1 0 0 0 1.54.84l9.9-6.4a1 1 0 0 0 0-1.68l-9.9-6.4A1 1 0 0 0 8 5.6z" fill="currentColor" stroke="none"/></svg>',
+  pause: S_ + '<rect x="6.2" y="5" width="4.1" height="14" rx="1.4" fill="currentColor" stroke="none"/><rect x="13.7" y="5" width="4.1" height="14" rx="1.4" fill="currentColor" stroke="none"/></svg>',
+  vol: S_ + '<path d="M4.5 9.5v5H8l4.5 4V5.5L8 9.5z" fill="currentColor" stroke="none"/><path d="M15.5 9.2a4.2 4.2 0 0 1 0 5.6M18 6.6a8 8 0 0 1 0 10.8"/></svg>',
+  volOff: S_ + '<path d="M4.5 9.5v5H8l4.5 4V5.5L8 9.5z" fill="currentColor" stroke="none"/><path d="M15.5 9.7l5 4.6M20.5 9.7l-5 4.6"/></svg>',
+  mic: S_ + '<rect x="9.4" y="3.5" width="5.2" height="10.2" rx="2.6"/><path d="M6 11.8a6 6 0 0 0 12 0M12 17.8V21"/></svg>',
+  micOff: S_ + '<rect x="9.4" y="3.5" width="5.2" height="10.2" rx="2.6"/><path d="M6 11.8a6 6 0 0 0 12 0M12 17.8V21"/><line x1="4.5" y1="4" x2="19.5" y2="20"/></svg>',
+  cam: S_ + '<rect x="3.5" y="6.5" width="12" height="11" rx="2.5"/><path d="M15.5 10.5 20.5 8v8l-5-2.5"/></svg>',
+  camOff: S_ + '<rect x="3.5" y="6.5" width="12" height="11" rx="2.5"/><path d="M15.5 10.5 20.5 8v8l-5-2.5"/><line x1="3.5" y1="3.8" x2="20.5" y2="20.2"/></svg>',
+  lock: S_ + '<rect x="5.5" y="10.5" width="13" height="9" rx="2.6"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/></svg>',
+  unlock: S_ + '<rect x="5.5" y="10.5" width="13" height="9" rx="2.6"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 6.8-1.2"/></svg>',
+  kick: S_ + '<circle cx="10" cy="8" r="3.4"/><path d="M4.5 19.6a5.5 5.5 0 0 1 11 0"/><path d="M16.8 9.8l4 4M20.8 9.8l-4 4"/></svg>',
+};
+let ws, selfId = null, isHost = false, hostId = null, leaving = false;
+let myName = (localStorage.getItem("wp-name") || "").trim();
+
+// Name comes from an inline field in the join overlay — the old prompt()
+// blocked the event loop right in the middle of the join handshake.
+const nameInput = document.getElementById("nameInput");
+nameInput.value = myName;
+nameInput.addEventListener("change", () => {
+  const v = nameInput.value.trim().slice(0, 40);
+  if (!v || v === myName) return;
+  myName = v;
+  localStorage.setItem("wp-name", myName);
+  if (selfId) {
+    send({ type: "name", name: myName });
+    if (peers.has(selfId)) peers.get(selfId).name = myName + " (you)";
+    renderPeers();
+  }
+  if (waitingAtDoor) sendKnock();   // update the name on the host's doorbell
+});
+
+const peers = new Map();      // peerId -> { name }
+const pcs = new Map();        // peerId -> RTCPeerConnection
+let localStream = null;
+let myFile = null;            // {name, size, hash}
+let hostFile = null;          // host's file meta for the mismatch warning
+
+// ---- admission control (locked rooms) ----
+let roomLocked = false;       // host toggles; locked = joiners must knock
+let waitingAtDoor = false;    // we connected to a locked room, awaiting admit
+let knockT = null;            // re-knock interval (covers host migration)
+const knocks = new Map();     // host side: peerId -> name of who's knocking
+
+function sendKnock() {
+  send({ type: "knock",
+         name: (myName || nameInput.value.trim() || "guest").slice(0, 40) });
+}
+function enterWaitingUi() {
+  document.getElementById("overlayTitle").textContent = "Knock knock…";
+  document.getElementById("overlayText").textContent =
+    "This room is locked. The host has been asked to let you in — hang tight.";
+  document.getElementById("fileLabel").classList.add("hidden");
+  document.getElementById("startBtn").classList.add("hidden");
+  document.getElementById("rolePill").textContent = "at the door";
+}
+function exitWaitingUi() {
+  document.getElementById("overlayTitle").textContent = "Load your copy of the movie";
+  document.getElementById("overlayText").textContent = myFile ? myFile.name :
+    "Everyone opens the same file from their own disk — nothing is uploaded anywhere.";
+  document.getElementById("fileLabel").classList.remove("hidden");
+  if (video.src) document.getElementById("startBtn").classList.remove("hidden");
+}
+function updateLockUi() {
+  const b = document.getElementById("lockBtn");
+  b.innerHTML = (roomLocked ? SVGI.lock : SVGI.unlock) +
+    `<span>${roomLocked ? "Locked" : "Open"}</span>`;
+  b.classList.toggle("active", roomLocked);
+  b.title = roomLocked
+    ? "New joiners must knock — click to unlock"
+    : "Anyone with the link walks in — click to lock";
+}
+
+function toast(msg) {
+  const t = document.createElement("div");
+  t.className = "toast"; t.textContent = msg;
+  document.getElementById("toasts").appendChild(t);
+  setTimeout(() => t.classList.add("show"), 10);
+  setTimeout(() => { t.classList.remove("show"); setTimeout(() => t.remove(), 300); }, 3500);
+}
+
+// ---------- clock sync (NTP-style) ----------
+const samples = [];           // {rtt, offset}
+let bestOffset = 0;
+function serverNow() { return Date.now() + bestOffset; }
+
+function sendPing() {
+  if (ws?.readyState === 1) send({ type: "ping", t0: Date.now() });
+}
+function onPong(msg) {
+  const now = Date.now();
+  const rtt = now - msg.t0;
+  const offset = msg.serverTime + rtt / 2 - now;
+  samples.push({ rtt, offset });
+  if (samples.length > 8) samples.shift();
+  // Use the offset from the lowest-RTT sample (least jitter).
+  const best = samples.reduce((a, b) => (b.rtt < a.rtt ? b : a));
+  bestOffset = best.offset;
+  document.getElementById("statOffset").textContent = Math.round(bestOffset) + " ms";
+  document.getElementById("statRtt").textContent = best.rtt + " ms";
+}
+
+// ---------- anchored playback state ----------
+const SOFT = 0.15, HARD = 0.75, SKIP = 10, PAUSE_EPS = 0.05;
+let currentState = null;      // {playing, anchorPosition, anchorServerTime}
+let scrubbing = false;        // dragging the seek bar / holding fast-forward
+let started = false;          // user clicked "Enter" (autoplay unlocked)
+let applying = false;         // echo suppression while applying remote state
+let applyingT = null;
+let pendingApplies = 0;       // scheduled-but-unapplied syncs (gates the heartbeat)
+let lastLocalActionAt = 0;    // drift loop yields to fresh local actions
+let hardSeekStreak = 0;       // consecutive hard seeks = playback is stuck
+
+// Echo suppression: while we apply remote state, our video fires play/pause/
+// seeked events that must NOT rebroadcast. Real seeks can take longer than any
+// fixed guess, so the window is generous and the seeked event shortens it.
+function applyWindow(ms) {
+  applying = true;
+  clearTimeout(applyingT);
+  applyingT = setTimeout(() => { applying = false; }, ms);
+}
+video.addEventListener("seeked", () => { if (applying) applyWindow(150); });
+
+// Apply an incoming sync. Small drift while playing is left to the drift loop
+// (avoids per-message re-seek stutter); paused states apply exactly, because
+// nothing else moves the playhead while paused and paused frames should match.
+function applySync(msg) {
+  const prev = currentState;
+  currentState = msg;
+  if (msg.by === selfId) return;            // our own action — already applied
+  if (!started || !video.src) return;
+  const stateChanged = !prev || prev.playing !== msg.playing;
+  const expectedNow = msg.anchorPosition +
+    (msg.playing ? (serverNow() - msg.anchorServerTime) / 1000 : 0);
+  const drift = Math.abs(expectedNow - video.currentTime);
+  const closeEnough = msg.playing ? drift < HARD : drift < PAUSE_EPS;
+  if (!stateChanged && closeEnough) return;
+  const wait = Math.max(0, (msg.executeAt - bestOffset) - Date.now());
+  pendingApplies++;
+  setTimeout(() => {
+    pendingApplies--;
+    if (!video.src) return;
+    applyWindow(900);
+    const elapsed = msg.playing ? (serverNow() - msg.anchorServerTime) / 1000 : 0;
+    video.currentTime = msg.anchorPosition + elapsed;
+    video.playbackRate = 1.0;
+    if (msg.playing) video.play().catch(() => {}); else video.pause();
+  }, wait);
+}
+
+// Drift loop: everyone EXCEPT the host converges on the latest anchor (the
+// host is the reference clock — it emits the heartbeat instead). Enforces
+// play/pause state and, crucially, position-while-paused: a missed or late
+// pause apply self-heals instead of freezing on the wrong frame.
+setInterval(() => {
+  if (!started || !video.src || scrubbing || applying || !currentState) return;
+  if (isHost) return;
+  if (Date.now() - lastLocalActionAt < 1200) return;  // our action is in flight
+  if (currentState.playing && video.paused) { video.play().catch(() => {}); return; }
+  if (!currentState.playing) {
+    if (!video.paused) { video.pause(); return; }
+    const offBy = currentState.anchorPosition - video.currentTime;
+    setDrift(offBy);
+    if (Math.abs(offBy) > PAUSE_EPS) {
+      applyWindow(500);
+      video.currentTime = currentState.anchorPosition;
+    }
+    return;
+  }
+  const expected = currentState.anchorPosition +
+    (serverNow() - currentState.anchorServerTime) / 1000;
+  const delta = expected - video.currentTime;   // +ve => we're behind
+  setDrift(delta);
+  if (Math.abs(delta) > HARD) {
+    applyWindow(500);
+    video.currentTime = expected; video.playbackRate = 1.0;
+    // A healthy player needs at most one hard seek to catch up. Needing one
+    // every tick means currentTime isn't advancing — almost always a codec
+    // this browser can't decode (black frame, frozen playhead).
+    if (++hardSeekStreak >= 3)
+      showMediaWarn("Playback can't keep up with the room — if the picture is " +
+        "black or frozen, this browser likely can't decode this file. Try a " +
+        "Chromium-based browser, or an H.264/AAC MP4 copy of the movie.");
+  } else if (Math.abs(delta) > SOFT) {
+    hardSeekStreak = 0;
+    const want = 1 + Math.max(-0.05, Math.min(0.05, delta * 0.5));
+    // Only touch playbackRate when it actually changes — redundant sets every
+    // tick cause decode hiccups in some browsers.
+    if (Math.abs(video.playbackRate - want) > 0.004) video.playbackRate = want;
+  } else {
+    hardSeekStreak = 0;
+    if (video.playbackRate !== 1.0) video.playbackRate = 1.0;
+    clearMediaWarn();   // recovered (or never was stuck)
+  }
+}, 1000);
+
+function setDrift(deltaSeconds) {
+  const ms = deltaSeconds * 1000;
+  const label = Math.round(ms) + " ms";
+  document.getElementById("statDrift").textContent = label;
+  document.getElementById("ctrlDrift").textContent = label;
+  const dot = document.getElementById("syncDot");
+  const a = Math.abs(deltaSeconds);
+  dot.className = "dot " + (a < SOFT ? "ok" : a < HARD ? "mid" : "bad");
+}
+
+// ---------- media health (decode failures are otherwise silent) ----------
+function showMediaWarn(text) {
+  document.getElementById("mediaWarnText").textContent = text;
+  document.getElementById("mediaWarn").style.display = "block";
+}
+function clearMediaWarn() {
+  document.getElementById("mediaWarn").style.display = "none";
+}
+video.addEventListener("error", () => {
+  const codes = { 1: "loading aborted", 2: "network error",
+                  3: "decoding failed", 4: "format not supported" };
+  showMediaWarn(`This browser can't play your file (${codes[video.error?.code] || "unknown error"}). ` +
+    "The room keeps playing without you — to join, try a Chromium-based browser " +
+    "or an H.264/AAC MP4 copy of the movie.");
+});
+
+// Buffering feedback: without it a slow disk read or a long seek just looks
+// frozen. Delayed 300ms so quick seeks don't flash a spinner.
+const spinner = document.getElementById("spinner");
+let spinT = null;
+video.addEventListener("waiting", () => {
+  if (!started) return;
+  clearTimeout(spinT);
+  spinT = setTimeout(() => spinner.classList.remove("hidden"), 300);
+});
+for (const ev of ["playing", "canplay", "pause", "error"])
+  video.addEventListener(ev, () => { clearTimeout(spinT); spinner.classList.add("hidden"); });
+
+// Decoder-stall watchdog: after (rapid) seeking, some browsers — Firefox-based
+// ones especially — keep the clock and audio running but stop rendering video
+// frames. currentTime advances, so the drift loop sees nothing wrong; instead
+// compare decoded-frame progress against playhead progress and recover with an
+// escalating ladder: in-place micro-seek → pause/seek/play cycle → full
+// element reload (rebuilds the decoder entirely).
+let wdFrames = -1, wdTime = 0, stallKicks = 0, hardRecoveries = 0, recovering = false;
+function decodedFrames() {
+  if (video.getVideoPlaybackQuality)
+    return video.getVideoPlaybackQuality().totalVideoFrames;
+  return video.webkitDecodedFrameCount ?? -1;
+}
+setInterval(() => {
+  if (!started || !video.src || video.paused || scrubbing || applying ||
+      recovering || document.hidden) { wdFrames = -1; return; }
+  const frames = decodedFrames();
+  if (frames < 0) return;                            // API unavailable
+  const t = video.currentTime;
+  if (wdFrames >= 0 && frames === wdFrames && t - wdTime > 1.5) {
+    // Playhead moved ≥1.5s but not one new frame was decoded — stalled.
+    stallKicks++;
+    if (stallKicks === 1) {
+      // Gentle: an in-place micro-seek usually reinitialises the decoder.
+      applyWindow(600);
+      video.currentTime = t + 0.001;
+    } else if (stallKicks === 2) {
+      // Firmer: a full pause → seek → play cycle re-primes the pipeline.
+      applyWindow(1500);
+      video.pause();
+      video.currentTime = t + 0.001;
+      setTimeout(() => video.play().catch(() => {}), 150);
+      showMediaWarn("Video rendering stalled — restarting the playback pipeline…");
+    } else if (hardRecoveries < 2) {
+      hardRecoverVideo();
+    } else {
+      showMediaWarn("This browser keeps failing to render this file — Firefox-based " +
+        "browsers (Zen, Firefox) struggle with some codecs. Your position stays in " +
+        "sync; for pictures too, switch to a Chromium-based browser (Chrome, Edge, " +
+        "Arc, Dia) or use an H.264/AAC MP4 copy of the movie.");
+    }
+  } else if (frames > wdFrames) {
+    stallKicks = 0;
+  }
+  wdFrames = frames; wdTime = t;
+}, 2000);
+
+// Last resort: tear the media pipeline down with load() (the blob URL stays
+// valid) and rejoin the room's timeline once frames are decodable again.
+// Costs a visible blink — far better than a permanently frozen picture.
+function hardRecoverVideo() {
+  if (recovering || !video.src) return;
+  recovering = true;
+  hardRecoveries++;
+  applyWindow(6000);
+  showMediaWarn("Video decoder wedged — reloading the video (picture will blink)…");
+  const resume = () => {
+    video.removeEventListener("loadeddata", resume);
+    clearTimeout(bail);
+    const st = currentState;
+    const pos = st ? st.anchorPosition +
+      (st.playing ? (serverNow() - st.anchorServerTime) / 1000 : 0) : 0;
+    applyWindow(1500);
+    video.currentTime = Math.max(0, pos);
+    if (!st || st.playing) video.play().catch(() => {});
+    recovering = false;
+  };
+  const bail = setTimeout(() => {              // first frame never came back
+    video.removeEventListener("loadeddata", resume);
+    recovering = false;
+  }, 8000);
+  video.addEventListener("loadeddata", resume);
+  video.load();
+}
+
+// ---------- control broadcasting (shared control) ----------
+// Anyone's play/pause/seek drives the room; the server sequences actions so
+// the last one wins. The host additionally heartbeats its true position every
+// ~2.5s — playing OR paused — so anchors stay fresh and everyone self-heals.
+// A heartbeat never stomps a fresh action: the server drops heartbeats for 2s
+// after any action, and a host with an unapplied sync doesn't heartbeat at all.
+function broadcastControl(heartbeat = false) {
+  if (!started || !video.src || applying || scrubbing) return;
+  if (heartbeat && pendingApplies > 0) return;
+  if (!heartbeat) lastLocalActionAt = Date.now();
+  send({ type: "control", playing: !video.paused, position: video.currentTime,
+         heartbeat });
+}
+video.addEventListener("play", () => broadcastControl());
+video.addEventListener("pause", () => broadcastControl());
+video.addEventListener("seeked", () => broadcastControl());
+
+setInterval(() => { if (isHost) broadcastControl(true); }, 2500);
+
+// ---------- player controls ----------
+const playBtn = document.getElementById("playBtn");
+const seekBar = document.getElementById("seekBar");
+const timeLabel = document.getElementById("timeLabel");
+
+function fmtTime(s) {
+  if (!isFinite(s) || s < 0) s = 0;
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = Math.floor(s % 60);
+  return (h ? h + ":" + String(m).padStart(2, "0") : m) + ":" + String(sec).padStart(2, "0");
+}
+function togglePlay() {
+  if (!video.src || !started) return;
+  if (video.paused) video.play().catch(() => {}); else video.pause();
+}
+function skip(delta) {
+  if (!video.src || !started) return;
+  const max = isFinite(video.duration) ? video.duration : 1e9;
+  video.currentTime = Math.max(0, Math.min(max, video.currentTime + delta));
+}
+playBtn.addEventListener("click", togglePlay);
+document.getElementById("backBtn").addEventListener("click", () => skip(-SKIP));
+document.getElementById("fwdBtn").addEventListener("click", () => skip(SKIP));
+
+playBtn.innerHTML = SVGI.play;
+video.addEventListener("play", () => { playBtn.innerHTML = SVGI.pause; uiActivity(); });
+video.addEventListener("pause", () => { playBtn.innerHTML = SVGI.play; uiActivity(); });
+video.addEventListener("loadedmetadata", () => { seekBar.max = video.duration || 0; });
+video.addEventListener("timeupdate", () => {
+  if (!scrubbing) seekBar.value = video.currentTime;
+  timeLabel.textContent = fmtTime(video.currentTime) + " / " + fmtTime(video.duration);
+});
+// Seek bar: preview while dragging, broadcast once on release. Preview seeks
+// are throttled — one per drag tick is a seek storm that stalls some browsers'
+// video decoders (picture freezes while audio/clock continue). fastSeek
+// (keyframe-only, much cheaper) is used for previews where available; the
+// release always does one precise seek.
+let scrubLastSeek = 0;
+seekBar.addEventListener("input", () => {
+  scrubbing = true;
+  const t = parseFloat(seekBar.value);
+  timeLabel.textContent = fmtTime(t) + " / " + fmtTime(video.duration);
+  const now = Date.now();
+  if (now - scrubLastSeek > 180) {
+    scrubLastSeek = now;
+    if (video.fastSeek) video.fastSeek(t); else video.currentTime = t;
+  }
+});
+seekBar.addEventListener("change", () => {
+  scrubbing = false;
+  video.currentTime = parseFloat(seekBar.value);   // final precise seek
+  broadcastControl();
+});
+
+// Click video = play/pause; double-click = fullscreen.
+let clickT = null;
+video.addEventListener("click", () => {
+  clearTimeout(clickT);
+  clickT = setTimeout(togglePlay, 220);
+});
+video.addEventListener("dblclick", () => { clearTimeout(clickT); toggleFullscreen(); });
+
+// Volume (local only — never synced).
+const volBar = document.getElementById("volBar");
+const muteBtnV = document.getElementById("muteBtnV");
+const savedVol = parseFloat(localStorage.getItem("wp-vol"));
+if (isFinite(savedVol)) { video.volume = savedVol; volBar.value = savedVol; }
+function volUi() { muteBtnV.innerHTML = (video.muted || video.volume === 0) ? SVGI.volOff : SVGI.vol; }
+volUi();
+volBar.addEventListener("input", () => {
+  video.volume = parseFloat(volBar.value); video.muted = false;
+  localStorage.setItem("wp-vol", volBar.value); volUi();
+});
+muteBtnV.addEventListener("click", () => { video.muted = !video.muted; volUi(); });
+
+// Fullscreen on the stage (video + controls together).
+function toggleFullscreen() {
+  if (document.fullscreenElement) document.exitFullscreen?.();
+  else stage.requestFullscreen?.();
+}
+document.getElementById("fsBtn").addEventListener("click", toggleFullscreen);
+
+// Auto-hide controls while playing and the mouse is idle.
+let idleT = null;
+function uiActivity() {
+  stage.classList.remove("hideui");
+  clearTimeout(idleT);
+  if (!video.paused) idleT = setTimeout(() => stage.classList.add("hideui"), 2600);
+}
+stage.addEventListener("mousemove", uiActivity);
+stage.addEventListener("mouseleave", () => { if (!video.paused) stage.classList.add("hideui"); });
+
+// ---------- keyboard: space tap = play/pause, hold = 2×; arrows seek ----------
+let spaceTimer = null, holding2x = false;
+document.addEventListener("keydown", (e) => {
+  if (!video.src || !started) return;
+  const tag = (e.target.tagName || "").toLowerCase();
+  if (tag === "input" || tag === "textarea") return;
+  if (e.code === "Space") {
+    e.preventDefault();
+    if (e.repeat || spaceTimer || holding2x) return;
+    spaceTimer = setTimeout(() => {            // still held after 250ms -> fast-forward
+      spaceTimer = null; holding2x = true; scrubbing = true; video.playbackRate = 2;
+    }, 250);
+  } else if (e.code === "ArrowLeft") {
+    e.preventDefault(); skip(-SKIP);
+  } else if (e.code === "ArrowRight") {
+    e.preventDefault(); skip(SKIP);
+  } else if (e.code === "KeyF") {
+    e.preventDefault(); toggleFullscreen();
+  } else if (e.code === "KeyM") {
+    e.preventDefault(); video.muted = !video.muted; volUi();
+  }
+});
+document.addEventListener("keyup", (e) => {
+  if (e.code !== "Space") return;
+  e.preventDefault();
+  if (spaceTimer) {                            // released quickly -> it was a tap
+    clearTimeout(spaceTimer); spaceTimer = null; togglePlay();
+  } else if (holding2x) {                       // release fast-forward, resync everyone
+    holding2x = false; scrubbing = false; video.playbackRate = 1; broadcastControl();
+  }
+});
+
+// ---------- file loading ----------
+let objectUrl = null;
+document.getElementById("fileInput").addEventListener("change", async (e) => {
+  const f = e.target.files[0];
+  if (!f) return;
+  if (objectUrl) URL.revokeObjectURL(objectUrl);
+  objectUrl = URL.createObjectURL(f);
+  video.src = objectUrl;
+  hardSeekStreak = 0;
+  stallKicks = 0; hardRecoveries = 0; wdFrames = -1;   // fresh file, fresh watchdog
+  clearMediaWarn();
+  document.getElementById("startBtn").classList.remove("hidden");
+  document.getElementById("overlayText").textContent = f.name;
+  myFile = { name: f.name, size: f.size, hash: await quickHash(f) };
+  publishFileMeta();
+  checkFileMatch();
+});
+
+// Quick fingerprint: SHA-256 of the first 1 MiB. Catches "same size, different
+// contents" mismatches the size check alone would miss. crypto.subtle only
+// exists in secure contexts — fall back to size-only comparison elsewhere.
+async function quickHash(file) {
+  if (!crypto.subtle) return null;
+  try {
+    const buf = await file.slice(0, 1048576).arrayBuffer();
+    const digest = await crypto.subtle.digest("SHA-256", buf);
+    return [...new Uint8Array(digest)]
+      .map((b) => b.toString(16).padStart(2, "0")).join("").slice(0, 32);
+  } catch { return null; }
+}
+
+// The host's file is the reference copy everyone compares against. Re-sent on
+// (re)join and on promotion, so the meta survives "picked a file before the
+// join finished" races and host migration.
+function publishFileMeta() {
+  if (isHost && myFile) send({ type: "file", ...myFile });
+}
+
+function checkFileMatch() {
+  const warn = document.getElementById("fileWarn");
+  const text = document.getElementById("fileWarnText");
+  if (!myFile || !hostFile || isHost) { warn.style.display = "none"; return; }
+  if (myFile.size !== hostFile.size) {
+    text.textContent = `Your file (${fmt(myFile.size)}) differs from the host's ` +
+      `"${hostFile.name}" (${fmt(hostFile.size)}). Sync positions may not line up.`;
+    warn.style.display = "block";
+  } else if (myFile.hash && hostFile.hash && myFile.hash !== hostFile.hash) {
+    text.textContent = `Your file matches the size of the host's "${hostFile.name}" ` +
+      `but its contents differ. Sync positions may not line up.`;
+    warn.style.display = "block";
+  } else {
+    warn.style.display = "none";
+  }
+}
+function fmt(b) { return (b / 1048576).toFixed(1) + " MB"; }
+
+// Gate first playback behind a user gesture (autoplay policy).
+document.getElementById("startBtn").addEventListener("click", () => {
+  started = true;
+  stage.classList.add("ready");
+  // Unlock autoplay with this gesture, then settle to whatever the room is
+  // doing. The apply window suppresses the play/pause events this dance fires,
+  // so we don't broadcast a phantom play+pause to the room.
+  applyWindow(900);
+  video.play()
+    .then(() => { if (!currentState?.playing) video.pause(); })
+    .catch(() => {});
+  document.getElementById("overlay").classList.add("hidden");
+  uiActivity();
+  if (currentState) applySync({ ...currentState, by: null, executeAt: serverNow() });
+});
+
+// ---------- WebSocket ----------
+function send(obj) { if (ws?.readyState === 1) ws.send(JSON.stringify(obj)); }
+
+let reconnectDelay = 1500;
+function connect() {
+  const proto = location.protocol === "https:" ? "wss" : "ws";
+  ws = new WebSocket(`${proto}://${location.host}/ws/room/${ROOM}/`);
+  ws.onopen = () => {
+    reconnectDelay = 1500;
+    // Fresh connection, fresh clock: old samples may predate a server restart.
+    // Burst a few pings so executeAt scheduling has a usable offset within ~1s
+    // instead of sitting at offset 0 until the 3s interval fires.
+    samples.length = 0;
+    sendPing();
+    setTimeout(sendPing, 250);
+    setTimeout(sendPing, 700);
+    setTimeout(sendPing, 1500);
+  };
+  ws.onmessage = (e) => handle(JSON.parse(e.data));
+  ws.onclose = () => {
+    if (leaving) return;   // intentional quit / room closed — don't reconnect
+    document.getElementById("rolePill").textContent = "reconnecting…";
+    // Exponential backoff (with jitter) so a down server isn't hammered.
+    setTimeout(connect, reconnectDelay + Math.random() * 400);
+    reconnectDelay = Math.min(reconnectDelay * 2, 12000);
+  };
+}
+
+async function handle(msg) {
+  switch (msg.type) {
+    case "waiting":
+      // Locked room: we're pending until the host admits us. Knock now and
+      // keep knocking gently — a migrated host needs to see the request too.
+      waitingAtDoor = true;
+      enterWaitingUi();
+      sendKnock();
+      clearInterval(knockT);
+      knockT = setInterval(sendKnock, 10000);
+      break;
+    case "denied":
+      leaving = true; try { ws?.close(); } catch {}
+      toast("The host didn't let you in.");
+      setTimeout(() => { location.href = "/"; }, 1600);
+      break;
+    case "kicked":
+      leaving = true; try { ws?.close(); } catch {}
+      toast("The host removed you from the room.");
+      setTimeout(() => { location.href = "/"; }, 1600);
+      break;
+    case "locked":
+      roomLocked = !!msg.locked;
+      updateLockUi();
+      if (!roomLocked) { knocks.clear(); renderPeers(); }
+      toast(roomLocked ? "Room locked — new joiners must knock"
+                       : "Room unlocked — the link lets anyone in");
+      break;
+    case "knock":
+      // Host only: someone is at the door.
+      knocks.set(msg.peerId, msg.name || "guest");
+      renderPeers();
+      toast(`${msg.name || "Someone"} wants to join`);
+      break;
+    case "joined":
+      if (waitingAtDoor) { waitingAtDoor = false; exitWaitingUi(); }
+      clearInterval(knockT);
+      roomLocked = !!msg.locked;
+      updateLockUi();
+      // A reconnect gets a brand-new peer id from the server, so tear down
+      // everything left from the previous connection before rebuilding —
+      // otherwise ghost peers, dead tiles and orphaned RTCPeerConnections pile up.
+      for (const pid of [...pcs.keys()]) closePeer(pid);
+      peers.clear();
+      faces.clear(); renderFaces();
+      selfId = msg.selfId; isHost = msg.isHost; hostId = msg.host;
+      hostFile = msg.file;
+      if (msg.state) currentState = { ...msg.state, by: null };  // catch up to room
+      updateRole();
+      if (!myName) {
+        // Whatever is in the overlay field, or a fallback — never a blocking
+        // prompt(). Editing the field later re-sends the name.
+        myName = (nameInput.value || "").trim().slice(0, 40) || "guest";
+        if (myName !== "guest") localStorage.setItem("wp-name", myName);
+      }
+      send({ type: "name", name: myName });
+      peers.set(selfId, { name: myName + " (you)" });
+      document.getElementById("camBtn").disabled = false;
+      if (localStream) addTile(selfId, localStream, true);
+      // Newcomer initiates a peer connection to each existing peer — always,
+      // even without local media (receive-only), so you see and hear the
+      // room's cams without having to share your own.
+      for (const p of msg.peers) {
+        peers.set(p.id, { name: p.name || "" });
+        startPeer(p.id, true);
+      }
+      publishFileMeta();   // covers "picked a file before the join finished"
+      checkFileMatch();
+      renderPeers();
+      break;
+    case "peer_joined":
+      knocks.delete(msg.peerId);   // admitted — no longer at the door
+      // Don't clobber a name we may already know from the joined snapshot.
+      if (!peers.has(msg.peerId)) peers.set(msg.peerId, { name: "" });
+      renderPeers();
+      setTimeout(() => {   // name usually lands right after
+        toast(`${peers.get(msg.peerId)?.name || "Someone"} joined`);
+      }, 450);
+      // Existing peer only answers; newcomer will initiate to us.
+      break;
+    case "peer_named":
+      if (peers.has(msg.peerId) && msg.peerId !== selfId)
+        peers.get(msg.peerId).name = msg.name || "";
+      renderFaces();
+      renderPeers();
+      break;
+    case "muted": {
+      // The host asked us to mute (we can unmute ourselves — media is P2P,
+      // this is cooperative, like every mainstream call app).
+      const at = localStream?.getAudioTracks()[0];
+      if (at) { at.enabled = false; micUi(); }
+      toast("The host muted your mic — you can unmute yourself.");
+      break;
+    }
+    case "peer_left":
+      toast(`${peers.get(msg.peerId)?.name || "Someone"} left`);
+      peers.delete(msg.peerId);
+      closePeer(msg.peerId);
+      renderPeers();
+      break;
+    case "host_changed":
+      hostId = msg.peerId; isHost = (selfId === hostId);
+      updateRole(); renderPeers();
+      if (isHost) {
+        toast("You are the host now");
+        // Just promoted: publish our file as the new reference copy and
+        // re-anchor the room to our playhead so everyone converges on the new
+        // timekeeper.
+        publishFileMeta();
+        broadcastControl();
+      } else {
+        toast(`${peers.get(hostId)?.name || "Someone"} is the host now`);
+      }
+      checkFileMatch();
+      break;
+    case "room_full":
+      leaving = true; try { ws?.close(); } catch {}
+      toast(`This room is full (max ${msg.max} people — WebRTC mesh limit).`);
+      setTimeout(() => { location.href = "/"; }, 1600);
+      break;
+    case "sync":
+      applySync(msg);   // applySync ignores our own actions via msg.by
+      break;
+    case "room_closed":
+      leaving = true; try { ws?.close(); } catch {}
+      toast("The host closed this room.");
+      setTimeout(() => { location.href = "/"; }, 1400);
+      break;
+    case "file":
+      hostFile = msg.file; checkFileMatch();
+      break;
+    case "pong":
+      onPong(msg);
+      break;
+    case "signal":
+      await onSignal(msg.from, msg.data);
+      break;
+  }
+}
+
+function updateRole() {
+  const pill = document.getElementById("rolePill");
+  pill.textContent = isHost ? "host" : "viewer";
+  pill.className = "pill" + (isHost ? " host" : "");
+  // Only the host can tear the room down, lock it, or kick people.
+  document.getElementById("deleteBtn").classList.toggle("hidden", !isHost);
+  document.getElementById("lockBtn").classList.toggle("hidden", !isHost);
+  if (!isHost) { knocks.clear(); }
+  if (isHost) {
+    document.getElementById("statDrift").textContent = "— (you are the reference)";
+    document.getElementById("ctrlDrift").textContent = "host";
+    document.getElementById("syncDot").className = "dot ok";
+  }
+}
+
+function hueFor(id) {
+  let h = 0;
+  for (const c of String(id)) h = (h * 31 + c.charCodeAt(0)) % 360;
+  return h;
+}
+function renderPeers() {
+  const el = document.getElementById("peerList");
+  el.innerHTML = "";
+  for (const [pid, p] of peers) {
+    const name = p.name || pid;
+    const row = document.createElement("div");
+    row.className = "peer";
+    row.innerHTML =
+      `<span class="avatar" style="background:hsl(${hueFor(pid)} 45% 45%)">` +
+      `${escapeHtml(name[0] || "?")}</span>` +
+      `<span class="name">${escapeHtml(name)}</span>` +
+      (pid === hostId ? `<span class="tag">host</span>` : "");
+    if (isHost && pid !== selfId) {
+      const mute = document.createElement("button");
+      mute.className = "mini"; mute.innerHTML = SVGI.micOff;
+      mute.title = "Mute this person's mic for everyone";
+      mute.addEventListener("click", () => {
+        send({ type: "mute", peerId: pid });
+        toast(`Asked ${name}'s mic to mute`);
+      });
+      const kick = document.createElement("button");
+      kick.className = "mini danger"; kick.innerHTML = SVGI.kick;
+      kick.title = "Remove from the room";
+      kick.addEventListener("click", () => {
+        if (confirm(`Remove ${name} from the room?`))
+          send({ type: "kick", peerId: pid });
+      });
+      row.append(mute, kick);
+    }
+    el.appendChild(row);
+  }
+  // Host only: knocks waiting at the door.
+  for (const [pid, name] of knocks) {
+    const row = document.createElement("div");
+    row.className = "peer knockrow";
+    row.innerHTML =
+      `<span class="avatar" style="background:hsl(${hueFor(pid)} 45% 45%)">` +
+      `${escapeHtml((name || "?")[0])}</span>` +
+      `<span class="name">${escapeHtml(name || "guest")}</span>`;
+    const yes = document.createElement("button");
+    yes.className = "mini ok"; yes.textContent = "Let in";
+    yes.addEventListener("click", () => {
+      knocks.delete(pid); renderPeers();
+      send({ type: "admit", peerId: pid, allow: true });
+    });
+    const no = document.createElement("button");
+    no.className = "mini danger"; no.textContent = "Deny";
+    no.addEventListener("click", () => {
+      knocks.delete(pid); renderPeers();
+      send({ type: "admit", peerId: pid, allow: false });
+    });
+    row.append(yes, no);
+    el.appendChild(row);
+  }
+}
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"]/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+}
+
+// ---------- WebRTC mesh ----------
+const MEDIA_CONSTRAINTS = {
+  audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+  video: { width: 320, height: 240 },
+};
+function mediaErrorToast(err) {
+  let hint = "";
+  if (err.name === "NotAllowedError")
+    hint = " If you never saw a browser prompt, macOS is blocking the browser " +
+      "itself: System Settings → Privacy & Security → Camera / Microphone.";
+  toast("Could not access camera/mic: " + err.message + hint);
+}
+async function enableMedia() {
+  if (!selfId) return;   // not joined yet (button is disabled until then anyway)
+  try {
+    localStream = await navigator.mediaDevices.getUserMedia(MEDIA_CONSTRAINTS);
+  } catch (err) {
+    // No usable camera (missing, busy, or constraints unmet)? Voice still
+    // works — retry audio-only instead of failing the whole join.
+    if (["NotFoundError", "NotReadableError", "OverconstrainedError"].includes(err.name)) {
+      try {
+        localStream = await navigator.mediaDevices.getUserMedia({ audio: MEDIA_CONSTRAINTS.audio });
+        toast("No usable camera — joined with voice only.");
+      } catch (err2) { mediaErrorToast(err2); return; }
+    } else {
+      mediaErrorToast(err);
+      return;
+    }
+  }
+  addTile(selfId, localStream, true);
+  document.getElementById("camBtn").classList.add("hidden");
+  document.getElementById("muteBtn").classList.remove("hidden");
+  document.getElementById("videoBtn").classList.remove("hidden");
+  micUi(); camUi();
+  // Connect to everyone already here: a fresh offer for new pairs, or a
+  // renegotiation for connections that existed before we had media — without
+  // it, peers who connected earlier would never receive our tracks.
+  for (const pid of peers.keys()) {
+    if (pid === selfId) continue;
+    const pc = pcs.get(pid);
+    if (!pc) { startPeer(pid, true); continue; }
+    localStream.getTracks().forEach((t) => attachTrack(pc, t));
+    sendOffer(pid, pc);
+  }
+}
+document.getElementById("camBtn").addEventListener("click", enableMedia);
+
+// Start sending a track on an existing connection. Reuse the transceiver
+// negotiated at join time (receive-only until now) — addTrack() reuse of those
+// is inconsistent across browsers, so do it explicitly.
+function attachTrack(pc, track) {
+  const tr = pc.getTransceivers().find(
+    (x) => x.receiver.track?.kind === track.kind && !x.sender.track);
+  if (tr) {
+    tr.direction = "sendrecv";
+    tr.sender.replaceTrack(track);
+  } else {
+    pc.addTrack(track, localStream);
+  }
+}
+
+function micUi() {
+  const t = localStream?.getAudioTracks()[0];
+  const on = !!t && t.enabled;
+  const b = document.getElementById("muteBtn");
+  b.innerHTML = on ? SVGI.mic : SVGI.micOff;
+  b.classList.toggle("active", !on);
+  b.title = on ? "Mute your mic" : "Unmute your mic";
+}
+function camUi() {
+  const sending = !!localStream?.getVideoTracks().length;
+  const b = document.getElementById("videoBtn");
+  b.innerHTML = sending ? SVGI.cam : SVGI.camOff;
+  b.classList.toggle("active", !sending);
+  b.title = sending ? "Turn your camera off" : "Turn your camera on";
+}
+
+document.getElementById("muteBtn").addEventListener("click", () => {
+  const t = localStream?.getAudioTracks()[0]; if (!t) return;
+  t.enabled = !t.enabled; micUi();
+});
+
+// Camera off means OFF: stop the hardware track (camera light goes out) and
+// stop sending on every connection — peers see a placeholder, not a black
+// rectangle. Camera on re-acquires and slots back into the same transceivers.
+document.getElementById("videoBtn").addEventListener("click", async () => {
+  if (!localStream) return;
+  const vt = localStream.getVideoTracks()[0];
+  if (vt) {
+    vt.stop();
+    localStream.removeTrack(vt);
+    for (const pc of pcs.values()) {
+      const s = pc.getSenders().find((x) => x.track === vt);
+      if (s) s.replaceTrack(null);
+    }
+  } else {
+    let track;
+    try {
+      const cam = await navigator.mediaDevices.getUserMedia(
+        { video: MEDIA_CONSTRAINTS.video });
+      track = cam.getVideoTracks()[0];
+    } catch { toast("Camera unavailable."); return; }
+    localStream.addTrack(track);
+    for (const [pid, pc] of pcs) {
+      attachTrack(pc, track);
+      sendOffer(pid, pc);   // covers pairs negotiated receive-only
+    }
+  }
+  camUi(); renderFaces();
+});
+
+const pendingCandidates = new Map();  // peerId -> candidates awaiting remoteDescription
+
+function makePc(peerId, offering) {
+  const pc = new RTCPeerConnection({ iceServers: ICE });
+  pcs.set(peerId, pc);
+  // Keep any candidates that raced ahead of the SDP — wiping the queue here
+  // dropped them and made connects flaky.
+  if (!pendingCandidates.has(peerId)) pendingCandidates.set(peerId, []);
+  if (localStream)
+    localStream.getTracks().forEach((t) => pc.addTrack(t, localStream));
+  if (offering) {
+    // Ensure both kinds have an m-line even without local media (or with
+    // voice-only media), so we still receive everyone's cam and voice.
+    // attachTrack() reuses these transceivers if we start sending later.
+    const kinds = new Set((localStream?.getTracks() || []).map((t) => t.kind));
+    if (!kinds.has("audio")) pc.addTransceiver("audio", { direction: "recvonly" });
+    if (!kinds.has("video")) pc.addTransceiver("video", { direction: "recvonly" });
+  }
+  pc.onicecandidate = (e) => {
+    if (e.candidate) send({ type: "signal", to: peerId, data: { candidate: e.candidate } });
+  };
+  pc.ontrack = (e) => addTile(peerId, e.streams[0], false);
+  // A hard ICE failure (network change, TURN allocation lost) never recovered
+  // before — the tile just died until someone rejoined. Restart from exactly
+  // one side (lower id) so both ends don't glare.
+  pc.onconnectionstatechange = () => {
+    if (pc.connectionState === "failed" && pcs.get(peerId) === pc && selfId < peerId) {
+      pc.restartIce?.();
+      sendOffer(peerId, pc);
+    }
+  };
+  return pc;
+}
+
+async function sendOffer(peerId, pc) {
+  try {
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    send({ type: "signal", to: peerId, data: { sdp: pc.localDescription } });
+  } catch (err) {
+    console.warn("offer failed", err);
+  }
+}
+
+async function startPeer(peerId, initiator) {
+  // The typeof guard keeps the sync simulator (no WebRTC in Node) working.
+  if (pcs.has(peerId) || typeof RTCPeerConnection === "undefined") return;
+  const pc = makePc(peerId, initiator);
+  if (initiator) await sendOffer(peerId, pc);
+}
+
+async function onSignal(from, data) {
+  if (typeof RTCPeerConnection === "undefined") return;
+  let pc = pcs.get(from);
+  try {
+    if (data.sdp && data.sdp.type === "offer") {
+      if (!pc) pc = makePc(from, false);
+      // Glare: both sides offered at once (e.g. both clicked "Join cam"
+      // together). Deterministic tie-break — the lower id accepts the remote
+      // offer (implicit rollback of its own), the higher id ignores this one
+      // and wins with the offer it already sent.
+      if (pc.signalingState !== "stable" && !(selfId < from)) return;
+      await pc.setRemoteDescription(data.sdp);
+      await flushCandidates(from, pc);
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      send({ type: "signal", to: from, data: { sdp: pc.localDescription } });
+    } else if (data.sdp) {                    // an answer
+      if (!pc || pc.signalingState !== "have-local-offer") return;  // stale
+      await pc.setRemoteDescription(data.sdp);
+      await flushCandidates(from, pc);
+    } else if (data.candidate) {
+      // Candidates can overtake their SDP because messages are handled
+      // concurrently — queue them until the remote description is in place.
+      if (pc && pc.remoteDescription) {
+        await pc.addIceCandidate(data.candidate).catch(() => {});
+      } else {
+        if (!pendingCandidates.has(from)) pendingCandidates.set(from, []);
+        pendingCandidates.get(from).push(data.candidate);
+      }
+    }
+  } catch (err) {
+    console.warn("signal handling failed", err);
+  }
+}
+
+async function flushCandidates(peerId, pc) {
+  const queued = pendingCandidates.get(peerId) || [];
+  pendingCandidates.set(peerId, []);
+  for (const c of queued) await pc.addIceCandidate(c).catch(() => {});
+}
+
+function closePeer(peerId) {
+  pcs.get(peerId)?.close();
+  pcs.delete(peerId);
+  pendingCandidates.delete(peerId);
+  removeFace(peerId);
+}
+
+// ---------- faces: one source of truth, three surfaces ----------
+// The same set of tiles can live in the sidebar, float over the movie
+// (visible in fullscreen too), or move to a pop-out window on a second
+// screen. Tiles show an initial placeholder when there's no live video
+// (camera really off, or a voice-only peer).
+const faces = new Map();        // peerId -> { stream, isSelf }
+const tilesEl = document.getElementById("tiles");
+let facesWin = null;            // pop-out window, if open
+let facesOnStage = false;
+
+function addTile(peerId, stream, isSelf) {
+  faces.set(peerId, { stream, isSelf });
+  renderFaces();
+}
+function removeFace(peerId) {
+  if (faces.delete(peerId)) renderFaces();
+}
+function faceLabel(pid) {
+  return faces.get(pid)?.isSelf ? "you" : (peers.get(pid)?.name || pid);
+}
+function hasLiveVideo(stream) {
+  return stream.getVideoTracks().some((t) => t.readyState === "live" && !t.muted);
+}
+
+function buildTile(docRef, pid, f) {
+  const tile = docRef.createElement("div");
+  tile.className = "tile"; tile.dataset.pid = pid;
+  const v = docRef.createElement("video");
+  v.autoplay = true; v.playsInline = true; if (f.isSelf) v.muted = true;
+  const ph = docRef.createElement("div"); ph.className = "ph";
+  const label = docRef.createElement("span");
+  tile.append(v, ph, label);
+  return tile;
+}
+
+function renderFacesInto(root, docRef) {
+  for (const el of [...root.querySelectorAll(".tile")])
+    if (!faces.has(el.dataset.pid)) el.remove();
+  for (const [pid, f] of faces) {
+    let tile = root.querySelector(`.tile[data-pid="${pid}"]`);
+    if (!tile) { tile = buildTile(docRef, pid, f); root.appendChild(tile); }
+    const v = tile.querySelector("video");
+    if (v.srcObject !== f.stream) {
+      v.srcObject = f.stream;
+      v.play().catch(() => {});
+    }
+    // Re-render on camera on/off: replaceTrack(null) mutes the remote track.
+    for (const t of f.stream.getVideoTracks())
+      t.onmute = t.onunmute = t.onended = () => renderFaces();
+    const name = faceLabel(pid);
+    tile.querySelector("span").textContent = name;
+    tile.querySelector(".ph").textContent = (name[0] || "?").toUpperCase();
+    tile.classList.toggle("novideo", !hasLiveVideo(f.stream));
+  }
+}
+
+function renderFaces() {
+  if (typeof RTCPeerConnection === "undefined") return;  // sync sim: no media plane
+  if (facesWin && !facesWin.closed) {
+    const grid = facesWin.document.getElementById("popTiles");
+    if (grid) renderFacesInto(grid, facesWin.document);
+    tilesEl.innerHTML = "";
+  } else {
+    renderFacesInto(tilesEl, document);
+  }
+  updateFaceControls();
+}
+
+function updateFaceControls() {
+  document.getElementById("faceTools").classList.toggle("hidden", faces.size === 0);
+  document.getElementById("overlayBtn").classList.toggle("active", facesOnStage);
+  document.getElementById("popoutBtn")
+    .classList.toggle("active", !!(facesWin && !facesWin.closed));
+}
+
+function toggleFacesOnStage() {
+  facesOnStage = !facesOnStage;
+  (facesOnStage ? stage : document.getElementById("tilesHome")).appendChild(tilesEl);
+  tilesEl.classList.toggle("on-stage", facesOnStage);
+  updateFaceControls();
+}
+
+const POP_CSS = `
+  body { margin:0; background:#0f0d14; font:12px/1.4 ui-rounded,-apple-system,system-ui,sans-serif; }
+  .poptiles { display:grid; gap:8px; padding:10px; grid-template-columns:1fr; }
+  .tile { position:relative; aspect-ratio:4/3; background:#101016; border-radius:14px; overflow:hidden; }
+  .tile video { width:100%; height:100%; object-fit:cover; display:block; }
+  .tile span { position:absolute; left:8px; bottom:6px; color:#fff; font-weight:700;
+               font-size:11px; text-shadow:0 1px 3px #000; z-index:1; }
+  .tile .ph { display:none; position:absolute; inset:0; place-items:center; color:#fff;
+              font-size:30px; font-weight:800;
+              background:linear-gradient(150deg,#2c2440,#191521); }
+  .tile.novideo video { visibility:hidden; }
+  .tile.novideo .ph { display:grid; }
+  .hint { color:#8d86a0; text-align:center; padding:6px 10px 12px; }
+`;
+
+function popOutFaces() {
+  if (facesWin && !facesWin.closed) { facesWin.close(); return; }  // toggle off
+  const w = window.open("", "wp-faces",
+    "width=380,height=680,menubar=no,toolbar=no,location=no,status=no");
+  if (!w) { toast("Your browser blocked the pop-out window."); return; }
+  facesWin = w;
+  const d = w.document;
+  d.title = "Faces — " + ROOM;
+  const st = d.createElement("style"); st.textContent = POP_CSS;
+  d.head.appendChild(st);
+  d.body.innerHTML = "";
+  const grid = d.createElement("div");
+  grid.className = "poptiles"; grid.id = "popTiles";
+  d.body.appendChild(grid);
+  const hint = d.createElement("div"); hint.className = "hint";
+  hint.textContent =
+    "Drag this window to your second screen. Click anywhere if audio doesn't start.";
+  d.body.appendChild(hint);
+  d.body.addEventListener("click", () =>
+    d.querySelectorAll("video").forEach((v) => v.play().catch(() => {})));
+  // No cross-window close event we can rely on — poll, then bring faces home.
+  const watch = setInterval(() => {
+    if (!facesWin || facesWin.closed) {
+      clearInterval(watch); facesWin = null; renderFaces();
+    }
+  }, 700);
+  renderFaces();
+}
+
+document.getElementById("overlayBtn").addEventListener("click", toggleFacesOnStage);
+document.getElementById("popoutBtn").addEventListener("click", popOutFaces);
+
+const tileSizeEl = document.getElementById("tileSize");
+function applyTileSize(px) { tilesEl.style.setProperty?.("--tilew", px + "px"); }
+const savedTileW = parseFloat(localStorage.getItem("wp-tilew"));
+if (isFinite(savedTileW)) { tileSizeEl.value = savedTileW; applyTileSize(savedTileW); }
+tileSizeEl.addEventListener("input", () => {
+  applyTileSize(tileSizeEl.value);
+  localStorage.setItem("wp-tilew", tileSizeEl.value);
+});
+
+// ---------- misc ----------
+document.getElementById("copyBtn").addEventListener("click", (e) => {
+  navigator.clipboard.writeText(location.href);
+  e.target.textContent = "Copied!";
+  setTimeout(() => (e.target.textContent = "Copy link"), 1500);
+});
+
+document.getElementById("themeBtn").addEventListener("click", toggleTheme);
+
+function leaveRoom() {
+  leaving = true;
+  localStream?.getTracks().forEach((t) => t.stop());
+  try { facesWin?.close(); } catch {}
+  try { ws?.close(); } catch {}
+  location.href = "/";
+}
+document.getElementById("leaveBtn").addEventListener("click", leaveRoom);
+document.getElementById("deleteBtn").addEventListener("click", () => {
+  if (confirm("Delete this room for everyone?")) send({ type: "delete" });
+});
+document.getElementById("lockBtn").addEventListener("click", () => {
+  send({ type: "lock", locked: !roomLocked });
+});
+
+setInterval(sendPing, 3000);
+connect();
+</script>
+</body>
+</html>

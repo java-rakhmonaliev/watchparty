@@ -1,0 +1,32 @@
+# ---- internal working docs: keep local, never push -----------------------
+DEVLOG.md
+CLAUDE.md
+.claude/
+
+# ---- secrets & environment ------------------------------------------------
+.env
+*.pem
+*.key
+
+# ---- python ----------------------------------------------------------------
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+db.sqlite3
+staticfiles/
+
+# ---- terraform (state lives in S3; lock file IS committed) -----------------
+*.tfstate
+*.tfstate.*
+.terraform/
+terraform.tfvars
+*.auto.tfvars
+tfplan
+
+# ---- OS / editors -----------------------------------------------------------
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+node_modules/

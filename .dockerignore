@@ -1,0 +1,15 @@
+.venv
+__pycache__
+*.pyc
+.git
+.github
+.claude
+.env
+DEVLOG.md
+CLAUDE.md
+DEVOPS.md
+README.md
+scripts/
+infra/
+docker-compose.yml
+Dockerfile

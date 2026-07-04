@@ -1,0 +1,62 @@
+# Watch Party deploy stack (Phase 5).
+#
+#   cp .env.example .env   # then edit SECRET_KEY / DOMAIN (and TURN_* if used)
+#   docker compose up -d --build
+#
+# Caddy terminates TLS for $DOMAIN (Let's Encrypt, automatic) and proxies both
+# HTTP and WebSocket to the web container. getUserMedia and crypto.subtle need
+# that secure context on anything that isn't localhost.
+#
+# TURN (for peers behind restrictive NATs) is opt-in because it needs host
+# networking and open relay ports — run it on a Linux VPS with:
+#   docker compose --profile turn up -d
+
+services:
+  web:
+    build: .
+    restart: unless-stopped
+    environment:
+      DEBUG: "0"
+      SECRET_KEY: ${SECRET_KEY:?copy .env.example to .env and set SECRET_KEY}
+      ALLOWED_HOSTS: ${DOMAIN:-localhost},localhost,127.0.0.1,web
+      REDIS_URL: redis://redis:6379/0
+      TURN_URL: ${TURN_URL:-}
+      TURN_USERNAME: ${TURN_USERNAME:-}
+      TURN_CREDENTIAL: ${TURN_CREDENTIAL:-}
+    depends_on:
+      - redis
+    ports:
+      # Direct (plain-HTTP) access for LAN testing; Caddy is the public entry.
+      # Override host ports via env if they collide with other projects.
+      - "${WEB_PORT:-8000}:8000"
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}
+    volumes:
+      - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - web
+
+  coturn:
+    image: coturn/coturn:4
+    restart: unless-stopped
+    profiles: ["turn"]     # opt-in: docker compose --profile turn up -d
+    network_mode: host     # relay port ranges need host networking (Linux VPS)
+    volumes:
+      - ./infra/coturn/turnserver.conf:/etc/coturn/turnserver.conf:ro
+
+volumes:
+  caddy_data:
+  caddy_config:
