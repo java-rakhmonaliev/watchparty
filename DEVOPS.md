@@ -1,8 +1,32 @@
-# Watch Party — deployment plan (AWS + Terraform + GitHub Actions)
+# Watch Party — deployment (AWS + Terraform + GitHub Actions)
 
-This is the runbook for getting the app onto AWS and keeping it there with zero
-manual server babysitting. It is a **plan first** — each phase below is a small,
-verifiable step; nothing past Phase 0 has been built yet.
+## Status — LIVE (provisioned 2026-07-04)
+
+| What | Value |
+|---|---|
+| URL | https://63.181.119.160.sslip.io |
+| Region | eu-central-1 (Frankfurt) |
+| Instance | `i-0f805af7a5ab5d2e1` (t4g.small, Amazon Linux 2023 arm64) |
+| Images | `804223629120.dkr.ecr.eu-central-1.amazonaws.com/watchparty` |
+| Deploy role (GitHub secret `AWS_ROLE_ARN`) | `arn:aws:iam::804223629120:role/watchparty-deploy` |
+| Secrets | SSM Parameter Store `/watchparty/*` (SecureString) |
+| TF state | s3://watchparty-tfstate-804223629120 (native lockfile) |
+
+**No domain yet** — `63.181.119.160.sslip.io` is free wildcard DNS pointing at
+the Elastic IP, which lets Caddy hold a real Let's Encrypt certificate (HTTPS
+is required for cameras/mics). When a real domain arrives: point an A record at
+the EIP, change `local.domain` in `main.tf`, `terraform apply`. Phases 0–4
+below are done (Route53 skipped — no domain); TURN runs but needs a
+cross-network test; Phase 6 (observability) is still open.
+
+Deploying is just: **merge to `main`** (tests gate the deploy). Rollback:
+re-run the deploy job from a previous commit, or on the instance
+`docker compose up -d` after retagging. Everyday ops:
+`aws ssm start-session --target i-0f805af7a5ab5d2e1 --region eu-central-1`.
+
+---
+
+The original plan follows — each phase was a small, verifiable step.
 
 ## Why this shape
 
